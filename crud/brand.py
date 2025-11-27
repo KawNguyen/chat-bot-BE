@@ -12,6 +12,10 @@ def get_brand_by_id(db: Session, brand_id: str):
 def get_brand_by_slug(db: Session, slug: str):
     return db.query(models.Brand).filter(models.Brand.slug == slug).first()
 
+def get_brand_by_name(db: Session, name: str):
+    """Tìm brand theo tên (case-insensitive)"""
+    return db.query(models.Brand).filter(models.Brand.name.ilike(name)).first()
+
 def check_slug_available(db: Session, slug: str) -> bool:
     """Kiểm tra slug có available không"""
     return get_brand_by_slug(db, slug) is None
@@ -81,6 +85,43 @@ def update_brand(db: Session, brand_id: str, brand_update: schemas.BrandUpdate):
     db.commit()
     db.refresh(db_brand)
     return db_brand
+
+def create_brands_bulk(db: Session, brands: list[schemas.BrandCreate]):
+    """Tạo nhiều brands cùng lúc"""
+    created_brands = []
+    errors = []
+    
+    for brand in brands:
+        try:
+            # Kiểm tra tên brand đã tồn tại chưa
+            existing_brand = db.query(models.Brand).filter(models.Brand.name == brand.name).first()
+            if existing_brand:
+                errors.append(f"Brand '{brand.name}' đã tồn tại")
+                continue
+            
+            # Tự động tạo slug từ name
+            base_slug = create_slug_from_name(brand.name)
+            unique_slug = generate_unique_slug(db, base_slug)
+            
+            db_brand = models.Brand(
+                name=brand.name,
+                slug=unique_slug
+            )
+            
+            db.add(db_brand)
+            db.flush()  # Flush để lấy ID nhưng chưa commit
+            created_brands.append(db_brand)
+            print(f"Tạo brand '{brand.name}' với slug: '{unique_slug}'")
+            
+        except Exception as e:
+            errors.append(f"Lỗi tạo brand '{brand.name}': {str(e)}")
+    
+    if created_brands:
+        db.commit()
+        for brand in created_brands:
+            db.refresh(brand)
+    
+    return created_brands, errors
 
 def delete_brand(db: Session, brand_id: str):
     db_brand = get_brand_by_id(db, brand_id)

@@ -9,6 +9,10 @@ def get_types(db: Session):
 def get_type_by_slug(db: Session, slug: str):
     return db.query(models.Type).filter(models.Type.slug == slug).first()
 
+def get_type_by_name(db: Session, name: str):
+    """Tìm type theo tên (case-insensitive)"""
+    return db.query(models.Type).filter(models.Type.name.ilike(name)).first()
+
 def get_type_by_id(db: Session, type_id: str):
     return db.query(models.Type).filter(models.Type.id == type_id).first()
 
@@ -79,6 +83,43 @@ def update_type(db: Session, id: str, type_update: schemas.TypeUpdate):
     db.commit()
     db.refresh(db_type)
     return db_type
+
+def create_types_bulk(db: Session, types: list[schemas.TypeCreate]):
+    """Tạo nhiều types cùng lúc"""
+    created_types = []
+    errors = []
+    
+    for type_item in types:
+        try:
+            # Kiểm tra tên type đã tồn tại chưa
+            existing_type = db.query(models.Type).filter(models.Type.name == type_item.name).first()
+            if existing_type:
+                errors.append(f"Type '{type_item.name}' đã tồn tại")
+                continue
+            
+            # Tự động tạo slug từ name
+            base_slug = create_slug_from_name(type_item.name)
+            unique_slug = generate_unique_slug(db, base_slug)
+            
+            db_type = models.Type(
+                name=type_item.name,
+                slug=unique_slug
+            )
+            
+            db.add(db_type)
+            db.flush()  # Flush để lấy ID nhưng chưa commit
+            created_types.append(db_type)
+            print(f"Tạo type '{type_item.name}' với slug: '{unique_slug}'")
+            
+        except Exception as e:
+            errors.append(f"Lỗi tạo type '{type_item.name}': {str(e)}")
+    
+    if created_types:
+        db.commit()
+        for type_obj in created_types:
+            db.refresh(type_obj)
+    
+    return created_types, errors
 
 def delete_type(db: Session, id: str):
     db_type = get_type_by_id(db, id)
